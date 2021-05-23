@@ -17,9 +17,10 @@ from torchvision import transforms
 from tqdm import tqdm as tqdm
 
 from util import *
+from model import create_model
 import data_loader
 
-model = 'resnet18' # resnet18, resnet50, resnet101
+arch = 'resnet18' # resnet18, spinalresnet18, 
 batch_size = 128  # Input batch size for training (default: 128)
 epochs = 100 # Number of epochs to train (default: 100)
 learning_rate = 1e-4 # Learning rate
@@ -39,17 +40,14 @@ torch.manual_seed(seed)
 if cuda:
     torch.cuda.manual_seed(seed)
 
-train_loader, val_loader = data_loader.get_data_loader('/content/dataset/train',batch_size,num_workers,train_val_ratio)
+train_loader, val_loader = data_loader.get_data_loader('./dataset/train',batch_size,num_workers,train_val_ratio)
 
-def train(train_loader, epoch, model, optimizer):
+def train(train_loader, epoch, model, optimizer, criterion):
     batch_time = AverageMeter('Time', ':6.3f')
-    l2 = AverageMeter('L2 Loss', ':.4e')
-    l1 = AverageMeter('L1 Loss', ':.4e')
-    progress = ProgressMeter(len(train_loader), batch_time, l2,l1, prefix="Epoch: [{}]".format(epoch))
+    loss = AverageMeter('Loss', ':.4e')
+    progress = ProgressMeter(len(train_loader), batch_time, loss, prefix="Epoch: [{}]".format(epoch))
     # switch to train mode
     model.train()
-    l1_criterion = nn.L1Loss().cuda()
-    l2_criterion = nn.MSELoss().cuda()
     end = time.time()
     for i, (input, label) in enumerate(train_loader):
         # measure data loading time
@@ -57,13 +55,11 @@ def train(train_loader, epoch, model, optimizer):
         label = label.float().flatten().cuda()
         # compute output
         output = model(input).flatten()
-        l2_ = l2_criterion(output, label)
-        l1_ = l1_criterion(output,label)
-        l2.update(l2_.item(), input.size(0))
-        l1.update(l1_.item(), input.size(0))
+        loss_ = criterion(output, label)
+        loss.update(loss_.item(), input.size(0))
         # compute gradient and do SGD step
         optimizer.zero_grad()
-        l2_.backward()
+        loss.backward()
         optimizer.step()
 
         # measure elapsed time
@@ -74,21 +70,20 @@ def train(train_loader, epoch, model, optimizer):
             progress.print(i)
     # print('==> Train Accuracy: Loss {losses:.3f} || scores {r2_score:.4e}'.format(losses=losses, r2_score=r2))
 
-def validation(val_loader,epoch, model):
+def validation(val_loader,epoch, model, criterion):
     model.eval()
-    l2 = torch.nn.MSELoss().cuda()
     for i,(input,label) in enumerate(val_loader):
         input = input.cuda()
         label = label.float().flatten().cuda()
         output = model(input).flatten()
-        l2_ = l2(label,output)
-        RMSE = torch.sqrt(l2_)
-    print('==> Validate Accuracy:  L2 distance {:.3f} || RMSE {:.3f}'.format(l2_,RMSE))
-    return RMSE
+        loss = criterion(label,output)
+    print('==> Validate Accuracy:  Loss {:.3f}'.format(loss))
+    return loss
 
 
 ###########################################################
-model = ResNet18(num_classes=num_classes).cuda()
+model = create_model(arch)
+
 
 # Check number of parameters your model
 pytorch_total_params = sum(p.numel() for p in model.parameters())
@@ -97,9 +92,20 @@ if int(pytorch_total_params) > 2000000:
     print('Your model has the number of parameters more than 2 millions..')
     sys.exit()
 
+# Optimizer
 optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate,momentum=0.9, nesterov=True, weight_decay=5e-4)
 
+# criterion
+# criterion = nn.L1Loss()
+# criterion = nn.MSELoss(size_average=True,reduce=True,reduction='mean')
+criterion = nn.SmoothL1Loss(size_average=True, reduce=True, reduction='mean', beta=0.5)
+
+# Scheduler
 scheduler = MultiStepLR(optimizer, milestones=[60, 90, 120], gamma=0.2)
+
+if cuda:
+    model = model.cuda()
+    criterion = criterion.cuda()
 
 best_acc = 1e5
 for epoch in range(epochs):
@@ -122,4 +128,4 @@ for epoch in range(epochs):
         torch.save(model.state_dict(), 'model_best.pt')
 
     torch.save(model.state_dict(),'model_latest.pt')
-print(f"Best RMSE Accuracy: {best_acc}")
+print(f"Least Loss : {best_acc}")
