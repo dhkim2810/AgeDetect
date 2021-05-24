@@ -21,6 +21,8 @@ def create_params():
                         help='number of data loading workers (default: 4)')
     parser.add_argument('--train_val_ratio', default=0.9, type=float,
                         help='train data split ratio for validation')
+    parser.add_argument('--save_dir', default='/root/volume/AgeDetect/Eval', type=str,
+                        help='Saving directory')
     parser.add_argument('--resume', default='', type=str, metavar='PATH',
                         help='path to latest checkpoint (default: none)')
     parser.add_argument('--print_freq', default=30, type=int,
@@ -28,7 +30,7 @@ def create_params():
     parser.add_argument('--trial', default=1,type=int)
     # Model
     parser.add_argument('--arch', default='resent18',type=str,
-                        choices=['resnet18','spinalresnet18','densenet'])
+                        choices=['resnet18','spinalresnet18','densenet','mymodel'])
     # Data Augmentation
     parser.add_argument('--data_dir',default='/root/volume/AgeDetect/dataset', type=str)
     parser.add_argument('--da', action='store_true',

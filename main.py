@@ -53,19 +53,22 @@ def train(config, train_loader, epoch, model, optimizer, l1_criterion, l2_criter
     return [L1Loss.avg, L2Loss.avg]
     # print('==> Train Accuracy: Loss {losses:.3f} || scores {r2_score:.4e}'.format(losses=losses, r2_score=r2))
 
-def validation(config, val_loader,epoch, model, criterion):
+def validation(val_loader,epoch, model, criterion):
     model.eval()
     with torch.set_grad_enabled(False):
-        rmse, loss_avg = 0,0
+        loss_, RMSE, num_ex = 0,0,0
         for i,(input,label) in enumerate(val_loader):
             input = input.cuda()
             label = label.float().flatten().cuda()
             output = model(input).flatten()
             loss = criterion(label,output)
-            loss_avg += loss.item()
-            rmse += torch.sqrt(loss)
-        print('==> Validate Accuracy:  L2 distance {:.3f} || RMSE {:.3f}'.format(loss_avg/len(val_loader),rmse/len(val_loader)))
-    return rmse/len(val_loader)
+            loss_ += loss.item()
+            RMSE += torch.sqrt(loss)
+            num_ex += 0
+    RMSE /= num_ex
+    loss_ /= num_ex
+    print('==> Validate Accuracy:  L2 distance {:.3f} || RMSE {:.3f}'.format(loss_, RMSE))
+    return RMSE
 
 
 def main():
@@ -159,7 +162,7 @@ def main():
         # train for one epoch
         start_time = time.time()
         train_loss = train(config, train_loader, epoch, model, optimizer,l1_criterion, l2_criterion)
-        val_acc = validation(config, val_loader,epoch,model,l2_criterion)
+        val_acc = validation(val_loader,epoch,model,l2_criterion)
         training_loss.append(train_loss)
         validation_loss.append(val_acc)
 
