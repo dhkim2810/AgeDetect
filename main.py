@@ -55,14 +55,17 @@ def train(config, train_loader, epoch, model, optimizer, l1_criterion, l2_criter
 
 def validation(config, val_loader,epoch, model, criterion):
     model.eval()
-    for i,(input,label) in enumerate(val_loader):
-        input = input.cuda()
-        label = label.float().flatten().cuda()
-        output = model(input).flatten()
-        loss = criterion(label,output)
-        RMSE = torch.sqrt(loss)
-    print('==> Validate Accuracy:  L2 distance {:.3f} || RMSE {:.3f}'.format(loss.item(),RMSE))
-    return RMSE
+    with torch.set_grad_enabled(False):
+        rmse, loss_avg = 0,0
+        for i,(input,label) in enumerate(val_loader):
+            input = input.cuda()
+            label = label.float().flatten().cuda()
+            output = model(input).flatten()
+            loss = criterion(label,output)
+            loss_avg += loss.item()
+            rmse += torch.sqrt(loss)
+        print('==> Validate Accuracy:  L2 distance {:.3f} || RMSE {:.3f}'.format(loss_avg/len(val_loader),rmse/len(val_loader)))
+    return rmse/len(val_loader)
 
 
 def main():
@@ -75,7 +78,7 @@ def main():
 
     train_loader, val_loader = data_loader.get_data_loader(
                                 config,
-                                config.data_dir,
+                                config.data_dir+'/train',
                                 config.batch_size,
                                 config.workers,
                                 config.train_val_ratio)
@@ -94,7 +97,8 @@ def main():
 
     # Check if checkpoint folder exist
     if not os.path.exists(os.path.join(config.output_dir, config.arch)):
-        os.makedirs(os.path.join(config.output_dir, config.arch))
+        os.makedirs(os.path.join(config.output_dir, config.arch, 'best'))
+        os.makedirs(os.path.join(config.output_dir, config.arch, 'latest'))
         print("Created directory ",str(os.path.join(config.output_dir, config.arch)))
 
     # Check number of parameters your model
@@ -173,9 +177,9 @@ def main():
         # Save model for best accuracy
         if best_acc > val_acc:
             best_acc = val_acc
-            torch.save(checkpoint, os.path.join(config.output_dir, config.arch, 'model_best_{}.pt'.format(config.trial)))
+            torch.save(checkpoint, os.path.join(config.output_dir, config.arch, 'best/model_{}.pt'.format(config.trial)))
 
-        torch.save(checkpoint,os.path.join(config.output_dir, config.arch, 'model_best_{}.pt'.format(config.trial)))
+        torch.save(checkpoint, os.path.join(config.output_dir, config.arch, 'latest/model_{}.pt'.format(config.trial)))
     print(f"Least Loss : {best_acc}")
 
 

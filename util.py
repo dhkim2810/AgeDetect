@@ -6,7 +6,7 @@ def create_params():
     # Environmnet
     parser.add_argument('--name', default='AgeDetect', type=str,
                         help='Name of the project')
-    parser.add_argument('--output_dir', default='./Result', type=str,
+    parser.add_argument('--output_dir', default='/root/volume/AgeDetect/Result', type=str,
                         help='Output directory')
     parser.add_argument('--use_gpu', action='store_true',
                         help='toggle gpu')
@@ -23,9 +23,6 @@ def create_params():
                         help='train data split ratio for validation')
     parser.add_argument('--resume', default='', type=str, metavar='PATH',
                         help='path to latest checkpoint (default: none)')
-    parser.add_argument('--save_dir', dest='save_dir',
-                        help='The directory used to save the trained models',
-                        default='save_temp', type=str)
     parser.add_argument('--print_freq', default=30, type=int,
                         help='print frequency (default: 30)')
     parser.add_argument('--trial', default=1,type=int)
@@ -33,7 +30,7 @@ def create_params():
     parser.add_argument('--arch', default='resent18',type=str,
                         choices=['resnet18','spinalresnet18','densenet'])
     # Data Augmentation
-    parser.add_argument('--data_dir',default='/root/volume/AgeDetect/dataset/train', type=str)
+    parser.add_argument('--data_dir',default='/root/volume/AgeDetect/dataset', type=str)
     parser.add_argument('--da', action='store_true',
                         help='Traditional data augmentation such as flipping')
     parser.add_argument('--cutout',action='store_true')
@@ -48,7 +45,7 @@ def create_params():
 
     parser.add_argument('--optim', default='sgd',type=str,
                         choices=['sgd','adam'])
-    parser.add_argument('--learning_rate',default=1e-4,type=float)
+    parser.add_argument('--learning_rate',default=2e-4,type=float)
     parser.add_argument('--momentum',default=0.9,type=float)
     parser.add_argument('--nesterov',action='store_true')
     parser.add_argument('--wd',default=5e-4,type=float)
