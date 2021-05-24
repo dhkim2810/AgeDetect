@@ -132,7 +132,7 @@ def main():
     scheduler = None
     if config.scheduler == 'step':
         scheduler = schedule.StepLR(optimizer, step_size=config.step_size,gamma=config.gamma, last_epoch=start_epoch-1)
-    elif config.scheduler == 'multi-step':
+    elif config.scheduler == 'multi_step':
         scheduler = schedule.MultiStepLR(optimizer, milestones=config.milestone, gamma=config.gamma, last_epoch=start_epoch-1)
     elif config.scheduler == 'exp':
         scheduler = schedule.ExponentialLR(optimizer, gamma=config.gamma, last_epoch=start_epoch-1)

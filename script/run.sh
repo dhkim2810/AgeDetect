@@ -1,1 +1,0 @@
-python main.py --data_augmentation --cuda --cudnn
