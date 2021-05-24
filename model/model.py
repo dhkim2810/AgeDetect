@@ -2,6 +2,7 @@ import logging
 
 from .resnet import *
 from .spinalresnet import *
+from .densenet import *
 
 
 def create_model(args):
@@ -12,5 +13,7 @@ def create_model(args):
         model = ResNet18(num_classes=1)
     elif args == 'spinalresnet18':
         model = SpinalResNet18(num_classes=1)
+    elif args == 'densenet':
+        model = densenet(num_class=1)
 
     return model

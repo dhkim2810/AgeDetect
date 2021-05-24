@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 
 from torch.autograd import Variable
-from torch.optim.lr_scheduler import MultiStepLR
+import torch.optim.lr_scheduler as schedule
 from torch.utils.data import Dataset
 from torchvision import transforms
 from tqdm import tqdm as tqdm
@@ -20,32 +20,12 @@ from util import *
 from model import create_model
 import data_loader
 
-arch = 'resnet18' # resnet18, spinalresnet18, 
-batch_size = 128  # Input batch size for training (default: 128)
-epochs = 100 # Number of epochs to train (default: 100)
-learning_rate = 1e-4 # Learning rate
-data_augmentation = True # Traditional data augmentation such as augmantation by flipping and cropping?
-cutout = True # Apply Cutout?
-n_holes = 1 # Number of holes to cut out from image
-length = 16 # Length of the holes
-seed = 0 # Random seed (default: 0)
-num_classes = 1 ##regression
-print_freq = 30
-num_workers = 1
-cuda = torch.cuda.is_available()
-cudnn.benchmark = True  # Should make training should go faster for large models
-train_val_ratio = 0.9
 
-torch.manual_seed(seed)
-if cuda:
-    torch.cuda.manual_seed(seed)
-
-train_loader, val_loader = data_loader.get_data_loader('./dataset/train',batch_size,num_workers,train_val_ratio)
-
-def train(train_loader, epoch, model, optimizer, criterion):
+def train(config, train_loader, epoch, model, optimizer, l1_criterion, l2_criterion):
     batch_time = AverageMeter('Time', ':6.3f')
-    loss = AverageMeter('Loss', ':.4e')
-    progress = ProgressMeter(len(train_loader), batch_time, loss, prefix="Epoch: [{}]".format(epoch))
+    L1Loss = AverageMeter('L1_Loss', ':.4e')
+    L2Loss = AverageMeter('L2_Loss', ':.4e')
+    progress = ProgressMeter(len(train_loader), batch_time, L1Loss,L2Loss, prefix="Epoch: [{}]".format(epoch))
     # switch to train mode
     model.train()
     end = time.time()
@@ -55,77 +35,149 @@ def train(train_loader, epoch, model, optimizer, criterion):
         label = label.float().flatten().cuda()
         # compute output
         output = model(input).flatten()
-        loss_ = criterion(output, label)
-        loss.update(loss_.item(), input.size(0))
+        l1_ = l1_criterion(output, label)
+        l2_ = l2_criterion(output, label)
+        L1Loss.update(l1_.item(), input.size(0))
+        L2Loss.update(l2_.item(), input.size(0))
         # compute gradient and do SGD step
         optimizer.zero_grad()
-        loss.backward()
+        l2_.backward()
         optimizer.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
 
-        if i % print_freq == 0:
+        if i % config.print_freq == 0:
             progress.print(i)
+    return [L1Loss.avg, L2Loss.avg]
     # print('==> Train Accuracy: Loss {losses:.3f} || scores {r2_score:.4e}'.format(losses=losses, r2_score=r2))
 
-def validation(val_loader,epoch, model, criterion):
+def validation(config, val_loader,epoch, model, criterion):
     model.eval()
     for i,(input,label) in enumerate(val_loader):
         input = input.cuda()
         label = label.float().flatten().cuda()
         output = model(input).flatten()
         loss = criterion(label,output)
-    print('==> Validate Accuracy:  Loss {:.3f}'.format(loss))
-    return loss
+        RMSE = torch.sqrt(loss)
+    print('==> Validate Accuracy:  L2 distance {:.3f} || RMSE {:.3f}'.format(loss.item(),RMSE))
+    return RMSE
 
 
-###########################################################
-model = create_model(arch)
+def main():
+    global config
+    config = create_params()
+
+    torch.manual_seed(config.seed)
+    if config.use_gpu and torch.cuda.is_available():
+        torch.cuda.manual_seed(config.seed)
+
+    train_loader, val_loader = data_loader.get_data_loader(
+                                config,
+                                config.data_dir,
+                                config.batch_size,
+                                config.workers,
+                                config.train_val_ratio)
+
+    start_epoch = 0
+    if config.resume:
+        checkpoint = torch.load(config.save_dir)
+        start_epoch = checkpoint['epoch']
+        model = create_model(checkpoint['arch'])
+        model.load_state_dict(checkpoint['state_dict'])
+    else:
+        model = create_model(config.arch)
+    available_gpu = torch.cuda.device_count()
+    if available_gpu > 0:
+        model = torch.nn.DataParallel(model, device_ids=range(available_gpu))
+
+    # Check if checkpoint folder exist
+    if not os.path.exists(os.path.join(config.output_dir, config.arch)):
+        os.makedirs(os.path.join(config.output_dir, config.arch))
+        print("Created directory ",str(os.path.join(config.output_dir, config.arch)))
+
+    # Check number of parameters your model
+    pytorch_total_params = sum(p.numel() for p in model.parameters())
+    print(f"Number of parameters: {pytorch_total_params}")
+    if int(pytorch_total_params) > 2000000:
+        print('Your model has the number of parameters more than 2 millions..')
+        sys.exit()
+
+    # Optimizer
+    optimizer = None
+    if config.optim == 'sgd':
+        optimizer = torch.optim.SGD(
+                        model.parameters(), 
+                        lr=config.learning_rate,
+                        momentum=config.momentum,
+                        nesterov=config.nesterov,
+                        weight_decay=config.wd)
+    elif config.optim == 'adam':
+        optimizer = torch.optim.adam(
+                        model.parameters(),
+                        lr=config.learning_rate,
+                        betas=(config.beta1, config.beta2),
+                        eps=config.eps,
+                        weight_decay=config.wd)
+    # criterion
+    l1_criterion = None
+    if config.use_huber:
+        l1_criterion = nn.SmoothL1Loss()
+    else:
+        l1_criterion = nn.L1Loss()
+    l2_criterion = nn.MSELoss()
+
+    # Scheduler
+    scheduler = None
+    if config.scheduler == 'step':
+        scheduler = schedule.StepLR(optimizer, step_size=config.step_size,gamma=config.gamma, last_epoch=start_epoch-1)
+    elif config.scheduler == 'multi-step':
+        scheduler = schedule.MultiStepLR(optimizer, milestones=config.milestone, gamma=config.gamma, last_epoch=start_epoch-1)
+    elif config.scheduler == 'exp':
+        scheduler = schedule.ExponentialLR(optimizer, gamma=config.gamma, last_epoch=start_epoch-1)
+    elif config.scheduler == 'cos':
+        scheduler = schedule.CosineAnnealingLR(optimizer, config.cycle, eta_min=0, last_epoch=start_epoch-1)
+
+    if config.use_gpu and torch.cuda.is_available():
+        model = model.cuda()
+        l1_criterion = l1_criterion.cuda()
+        l2_criterion = l2_criterion.cuda()
+
+    best_acc = 1e5
+    checkpoint = {}
+    training_loss = []
+    validation_loss = []
+    for epoch in range(start_epoch, config.epochs):
+        print("\n----- epoch: {}, lr: {} -----".format(
+            epoch, optimizer.param_groups[0]["lr"]))
+
+        # train for one epoch
+        start_time = time.time()
+        train_loss = train(config, train_loader, epoch, model, optimizer,l1_criterion, l2_criterion)
+        val_acc = validation(config, val_loader,epoch,model,l2_criterion)
+        training_loss.append(train_loss)
+        validation_loss.append(val_acc)
+
+        elapsed_time = time.time() - start_time
+        print('==> {:.2f} seconds to train this epoch\n'.format(elapsed_time))
+        # learning rate scheduling
+        scheduler.step()
+
+        checkpoint = {'epoch':epoch,
+                      'arch':config.arch,
+                      'state_dict':model.state_dict(),
+                      'train_loss':training_loss,
+                      'val_loss':validation_loss}
+        
+        # Save model for best accuracy
+        if best_acc > val_acc:
+            best_acc = val_acc
+            torch.save(checkpoint, os.path.join(config.output_dir, config.arch, 'model_best_{}.pt'.format(config.trial)))
+
+        torch.save(checkpoint,os.path.join(config.output_dir, config.arch, 'model_best_{}.pt'.format(config.trial)))
+    print(f"Least Loss : {best_acc}")
 
 
-# Check number of parameters your model
-pytorch_total_params = sum(p.numel() for p in model.parameters())
-print(f"Number of parameters: {pytorch_total_params}")
-if int(pytorch_total_params) > 2000000:
-    print('Your model has the number of parameters more than 2 millions..')
-    sys.exit()
-
-# Optimizer
-optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate,momentum=0.9, nesterov=True, weight_decay=5e-4)
-
-# criterion
-# criterion = nn.L1Loss()
-# criterion = nn.MSELoss(size_average=True,reduce=True,reduction='mean')
-criterion = nn.SmoothL1Loss(size_average=True, reduce=True, reduction='mean', beta=0.5)
-
-# Scheduler
-scheduler = MultiStepLR(optimizer, milestones=[60, 90, 120], gamma=0.2)
-
-if cuda:
-    model = model.cuda()
-    criterion = criterion.cuda()
-
-best_acc = 1e5
-for epoch in range(epochs):
-    print("\n----- epoch: {}, lr: {} -----".format(
-        epoch, optimizer.param_groups[0]["lr"]))
-
-    # train for one epoch
-    start_time = time.time()
-    train(train_loader, epoch, model, optimizer)
-    val_acc = validation(val_loader,epoch,model)
-
-    elapsed_time = time.time() - start_time
-    print('==> {:.2f} seconds to train this epoch\n'.format(elapsed_time))
-    # learning rate scheduling
-    scheduler.step()
-    
-    # Save model for best accuracy
-    if best_acc > val_acc:
-        best_acc = val_acc
-        torch.save(model.state_dict(), 'model_best.pt')
-
-    torch.save(model.state_dict(),'model_latest.pt')
-print(f"Least Loss : {best_acc}")
+if __name__ == '__main__':
+    main()

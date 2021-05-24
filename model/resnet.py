@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch.nn.functional as F
 
 '''ResNet18/34/50/101/152 in Pytorch.'''
 

@@ -28,11 +28,14 @@ class FacialDataset(Dataset):
     def __len__(self):
         return len(self.age_path)
 
-def get_data_loader(data_path, batch_size, num_workers,train_val_ratio):
+def get_data_loader(config, data_path, batch_size, num_workers,train_val_ratio):
     normalize = transforms.Normalize(mean=[0.5754, 0.4529, 0.3986],
                                     std=[0.2715, 0.2423, 0.2354])
     transform = transforms.Compose([])
-    transform.transforms.append(transforms.RandomHorizontalFlip())
+    if config.da:
+        transform.transforms.append(transforms.RandomHorizontalFlip())
+    # if config.cutout:
+        # add cutout
     transform.transforms.append(transforms.Resize((64,64)))
     transform.transforms.append(transforms.ToTensor())
     transform.transforms.append(normalize)

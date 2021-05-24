@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 '''ResNet18/34/50/101/152 in Pytorch.'''
 
@@ -44,19 +45,19 @@ class SpinalResNet(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.dropout = nn.Dropout2d(p=0.02)
 
-        self.layer1 = self._make_layer(block, 64, num_blocks[0])
+        self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
+        self.layer3 = self._make_layer(block, 128, num_blocks[2], stride=2)
+        # self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
 
         self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        self.fc1 = nn.Linear(512, self.first_HL)
-        self.fc1_1 = nn.Linear(512+self.first_HL, self.first_HL)
-        self.fc1_2 = nn.Linear(512+self.first_HL, self.first_HL)
-        self.fc1_3 = nn.Linear(512+self.first_HL, self.first_HL)
+        self.fc1 = nn.Linear(128, self.first_HL)
+        self.fc1_1 = nn.Linear(128+self.first_HL, self.first_HL)
+        self.fc1_2 = nn.Linear(128+self.first_HL, self.first_HL)
+        #self.fc1_3 = nn.Linear(512+self.first_HL, self.first_HL)
 
-        self.fc_layer = nn.Linear(self.first_HL*4,num_classes)
+        self.fc_layer = nn.Linear(self.first_HL*3,num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -84,7 +85,7 @@ class SpinalResNet(nn.Module):
         out = self.layer1(out)
         out = self.layer2(out)
         out = self.layer3(out)
-        out = self.layer4(out)
+        #out = self.layer4(out)
 
         out1 = self.maxpool(out)
         out2 = out1[:,:,0,0]
@@ -96,13 +97,13 @@ class SpinalResNet(nn.Module):
         x2 = self.relu(self.fc1_1(x2))
         x3 = torch.cat([out1[:,:,1,0], x2], dim=1)
         x3 = self.relu(self.fc1_2(x3))
-        x4 = torch.cat([out1[:,:,1,1], x3], dim=1)
-        x4 = self.relu(self.fc1_3(x4))
+        #x4 = torch.cat([out1[:,:,1,1], x3], dim=1)
+        #x4 = self.relu(self.fc1_3(x4))
 
         x = torch.cat([x1, x2], dim=1)
         x = torch.cat([x, x3], dim=1)
-        out = torch.cat([x,x4], dim=1)
-        out = self.linear(out)
+        #out = torch.cat([x,x4], dim=1)
+        out = self.fc_layer(x)
         return out
 
 
