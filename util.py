@@ -23,7 +23,7 @@ def create_params():
                         help='train data split ratio for validation')
     parser.add_argument('--save_dir', default='/root/volume/AgeDetect/Eval', type=str,
                         help='Saving directory')
-    parser.add_argument('--resume', default='', type=str, metavar='PATH',
+    parser.add_argument('--resume', default='None', type=str,
                         help='path to latest checkpoint (default: none)')
     parser.add_argument('--print_freq', default=30, type=int,
                         help='print frequency (default: 30)')
@@ -31,13 +31,18 @@ def create_params():
     # Model
     parser.add_argument('--arch', default='resent18',type=str,
                         choices=['resnet18','spinalresnet18','densenet','mymodel'])
+    parser.add_argument('--random_bin', action='store_true')
+    parser.add_argument('--m', default=30,type=int)
+    parser.add_argument('--n', default=10,type=int)
     # Data Augmentation
     parser.add_argument('--data_dir',default='/root/volume/AgeDetect/dataset', type=str)
+    parser.add_argument('--img_size',default=100,type=int)
     parser.add_argument('--da', action='store_true',
                         help='Traditional data augmentation such as flipping')
     parser.add_argument('--cutout',action='store_true')
     parser.add_argument('--n_holes',default=1,type=int)
     parser.add_argument('--length',default=16,type=int)
+    parser.add_argument('--normalize', action='store_true')
     # Training/Evaluation
     parser.add_argument('--eval', action='store_true')
     parser.add_argument('--epochs', default=150, type=int,

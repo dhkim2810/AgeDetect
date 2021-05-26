@@ -83,19 +83,20 @@ def get_data_loader(config, data_path, batch_size, num_workers,train_val_ratio):
     normalize = transforms.Normalize(mean=[0.5754, 0.4529, 0.3986],
                                     std=[0.2715, 0.2423, 0.2354])
     train_transform = transforms.Compose([])
+    train_transform.transforms.append(transforms.Resize((config.img_size,config.img_size)))
     if config.da:
         train_transform.transforms.append(transforms.RandomHorizontalFlip())
         train_transform.transforms.append(transforms.RandomRotation(15))
-        train_transform.transforms.append(transforms.RandomCrop(64, padding=4))
-    if config.cutout:
-        train_transform.transforms.append(Cutout(n_holes=config.n_holes, length=config.length, random=True))
-    train_transform.transforms.append(transforms.Resize((64,64)))
+        train_transform.transforms.append(transforms.RandomCrop(config.img_size, padding=8))
+    # if config.cutout:
+    #     train_transform.transforms.append(Cutout(n_holes=config.n_holes, length=config.length, random=True))
     train_transform.transforms.append(transforms.ToTensor())
     train_transform.transforms.append(normalize)
 
     val_transform = transforms.Compose([
-        transforms.Resize((224,224)),
-        transforms.ToTensor()
+        transforms.Resize((config.img_size,config.img_size)),
+        transforms.ToTensor(),
+        normalize
     ])
 
     full_dataset = FacialDataset(data_path, val_transform)

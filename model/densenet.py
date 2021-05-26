@@ -76,7 +76,4 @@ class DenseNet(nn.Module):
         return dense_block
 
 def densenet(num_class):
-    return DenseNet(Bottleneck, [3,6,10,6], growth_rate=32,num_class=num_class)
-
-def spinaldensenet121(num_class):
-    return DenseNet(Bottleneck, [6,12,24,16], growth_rate=32,num_class=num_class)
+    return DenseNet(Bottleneck, [3,6,10,7], growth_rate=32,num_class=num_class)

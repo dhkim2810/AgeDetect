@@ -19,7 +19,7 @@ from tqdm import tqdm as tqdm
 from util import *
 from model import create_model
 import data_loader
-
+from collections import OrderedDict
 
 def train(config, train_loader, epoch, model, optimizer, l1_criterion, l2_criterion):
     batch_time = AverageMeter('Time', ':6.3f')
@@ -28,6 +28,7 @@ def train(config, train_loader, epoch, model, optimizer, l1_criterion, l2_criter
     progress = ProgressMeter(len(train_loader), batch_time, L1Loss,L2Loss, prefix="Epoch: [{}]".format(epoch))
     # switch to train mode
     model.train()
+    model.zero_grad()
     end = time.time()
     for i, (input, label) in enumerate(train_loader):
         # measure data loading time
@@ -62,12 +63,9 @@ def validation(val_loader,epoch, model, criterion):
             label = label.float().flatten().cuda()
             output = model(input).flatten()
             loss = criterion(label,output)
-            loss_ += loss.item()
             RMSE += torch.sqrt(loss)
-            num_ex += 0
-    RMSE /= num_ex
-    loss_ /= num_ex
-    print('==> Validate Accuracy:  L2 distance {:.3f} || RMSE {:.3f}'.format(loss_, RMSE))
+    RMSE /= len(val_loader)
+    print('==> Validate Accuracy:  RMSE {:.3f}'.format(RMSE))
     return RMSE
 
 
@@ -76,6 +74,8 @@ def main():
     config = create_params()
 
     torch.manual_seed(config.seed)
+    if config.cudnn:
+        cudnn.benchmark = True
     if config.use_gpu and torch.cuda.is_available():
         torch.cuda.manual_seed(config.seed)
 
@@ -87,13 +87,17 @@ def main():
                                 config.train_val_ratio)
 
     start_epoch = 0
-    if config.resume:
-        checkpoint = torch.load(config.save_dir)
+    if config.resume != 'None':
+        checkpoint = torch.load(config.resume)
         start_epoch = checkpoint['epoch']
-        model = create_model(checkpoint['arch'])
-        model.load_state_dict(checkpoint['state_dict'])
+        model = create_model(config)
+        new_state_dict = OrderedDict()
+        for k, v in checkpoint['state_dict'].items():
+            name = k[7:] # remove `module.`
+            new_state_dict[name] = v
+        model.load_state_dict(new_state_dict)
     else:
-        model = create_model(config.arch)
+        model = create_model(config)
     available_gpu = torch.cuda.device_count()
     if available_gpu > 0:
         model = torch.nn.DataParallel(model, device_ids=range(available_gpu))
@@ -121,7 +125,7 @@ def main():
                         nesterov=config.nesterov,
                         weight_decay=config.wd)
     elif config.optim == 'adam':
-        optimizer = torch.optim.adam(
+        optimizer = torch.optim.Adam(
                         model.parameters(),
                         lr=config.learning_rate,
                         betas=(config.beta1, config.beta2),
@@ -138,18 +142,19 @@ def main():
     # Scheduler
     scheduler = None
     if config.scheduler == 'step':
-        scheduler = schedule.StepLR(optimizer, step_size=config.step_size,gamma=config.gamma, last_epoch=start_epoch-1)
+        scheduler = schedule.StepLR(optimizer, step_size=config.step_size,gamma=config.gamma)
     elif config.scheduler == 'multi_step':
-        scheduler = schedule.MultiStepLR(optimizer, milestones=config.milestone, gamma=config.gamma, last_epoch=start_epoch-1)
+        scheduler = schedule.MultiStepLR(optimizer, milestones=config.milestone, gamma=config.gamma)
     elif config.scheduler == 'exp':
-        scheduler = schedule.ExponentialLR(optimizer, gamma=config.gamma, last_epoch=start_epoch-1)
+        scheduler = schedule.ExponentialLR(optimizer, gamma=config.gamma)
     elif config.scheduler == 'cos':
-        scheduler = schedule.CosineAnnealingLR(optimizer, config.cycle, eta_min=0, last_epoch=start_epoch-1)
-
+        scheduler = schedule.CosineAnnealingLR(optimizer, config.cycle, eta_min=0)
+    
     if config.use_gpu and torch.cuda.is_available():
         model = model.cuda()
         l1_criterion = l1_criterion.cuda()
         l2_criterion = l2_criterion.cuda()
+        print("Using cuda..")
 
     best_acc = 1e5
     checkpoint = {}
@@ -169,10 +174,12 @@ def main():
         elapsed_time = time.time() - start_time
         print('==> {:.2f} seconds to train this epoch\n'.format(elapsed_time))
         # learning rate scheduling
-        scheduler.step()
+        if scheduler is not None:
+            scheduler.step()
 
         checkpoint = {'epoch':epoch,
                       'arch':config.arch,
+                      'config':config,
                       'state_dict':model.state_dict(),
                       'train_loss':training_loss,
                       'val_loss':validation_loss}

@@ -13,22 +13,25 @@ from util import create_params
 from model import create_model
 
 from collections import OrderedDict
+normalize = transforms.Normalize(mean=[0.5754, 0.4529, 0.3986],
+                                    std=[0.2715, 0.2423, 0.2354])
 
 class FacialDataset_test(Dataset):
-    def __init__(self, data_path):
+    def __init__(self, data_path, img_size):
         if not os.path.exists(data_path):
             raise Exception(f"[!] {self.data_path} not existed")
         self.imgs = []
-        self.transform = transforms.Compose([                      
-            transforms.Resize((64,64)),
-            transforms.ToTensor()    
+        self.transform = transforms.Compose([                            
+            transforms.Resize((img_size,img_size)),
+            transforms.ToTensor(),
+            normalize
         ])
         self.age_path = sorted(glob(os.path.join(data_path, "*.*")))
         for pth in self.age_path:
-          img = Image.open(pth)
-          self.imgs.append(self.transform(img))
+          img = pth
+          self.imgs.append(img)
     def __getitem__(self, idx):
-        image = self.imgs[idx]
+        image = self.transform(Image.open(self.imgs[idx]))
         return image
 
     def __len__(self):
@@ -36,8 +39,8 @@ class FacialDataset_test(Dataset):
 
 def eval():
     config = create_params()
-    test_dataset = FacialDataset_test(config.data_dir+'/test')
-    test_loader = torch.utils.data.DataLoader(dataset=test_dataset,batch_size=32,shuffle=False)
+    test_dataset = FacialDataset_test(config.data_dir+'/test', config.img_size)
+    test_loader = torch.utils.data.DataLoader(dataset=test_dataset,batch_size=1,shuffle=False)
 
     if not os.path.exists(os.path.join(config.save_dir, config.arch)):
         os.makedirs(os.path.join(config.save_dir, config.arch, 'best'))
@@ -48,7 +51,7 @@ def eval():
     checkpoint = None
     if config.eval:
         checkpoint = torch.load(os.path.join(config.output_dir, config.arch, 'best','model_{}.pt'.format(config.trial)))
-        model = create_model(checkpoint['arch'])
+        model = create_model(config)
         new_state_dict = OrderedDict()
         for k, v in checkpoint['state_dict'].items():
             name = k[7:] # remove `module.`
@@ -63,9 +66,9 @@ def eval():
     Category = []
     for input in test_loader:
         input = input.cuda()
-        output = [elem[0] for elem in model(input).detach().cpu().numpy().tolist()]
+        output = [model(input).item()]
         # output = torch.argmax(output, dim=1)
-        Category.extend(output)
+        Category = Category + output
 
     Id = list(range(0, len(Category)))
     samples = {
@@ -81,7 +84,7 @@ def eval():
     checkpoint = None
     if config.eval:
         checkpoint = torch.load(os.path.join(config.output_dir, config.arch, 'latest','model_{}.pt'.format(config.trial)))
-        model = create_model(checkpoint['arch'])
+        model = create_model(config)
         new_state_dict = OrderedDict()
         for k, v in checkpoint['state_dict'].items():
             name = k[7:] # remove `module.`
@@ -96,9 +99,9 @@ def eval():
     Category = []
     for input in test_loader:
         input = input.cuda()
-        output = [elem[0] for elem in model(input).detach().cpu().numpy().tolist()]
+        output = [model(input).item()]
         # output = torch.argmax(output, dim=1)
-        Category.extend(output)
+        Category = Category + output
 
     Id = list(range(0, len(Category)))
     samples = {
