@@ -48,7 +48,7 @@ def create_params():
     parser.add_argument('--epochs', default=150, type=int,
                         help='number of total epochs to run')
 
-    parser.add_argument('--use_huber',action='store_true')
+    parser.add_argument('--use_l1_loss',action='store_true')
 
     parser.add_argument('--optim', default='sgd',type=str,
                         choices=['sgd','adam'])

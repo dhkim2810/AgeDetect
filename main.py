@@ -42,7 +42,10 @@ def train(config, train_loader, epoch, model, optimizer, l1_criterion, l2_criter
         L2Loss.update(l2_.item(), input.size(0))
         # compute gradient and do SGD step
         optimizer.zero_grad()
-        l2_.backward()
+        if config.use_l1_loss:
+            l1_.backward()
+        else:
+            l2_.backward()
         optimizer.step()
 
         # measure elapsed time
@@ -57,16 +60,16 @@ def train(config, train_loader, epoch, model, optimizer, l1_criterion, l2_criter
 def validation(val_loader,epoch, model, criterion):
     model.eval()
     with torch.set_grad_enabled(False):
-        loss_, RMSE, num_ex = 0,0,0
+        loss_, acc, num_ex = 0,0,0
         for i,(input,label) in enumerate(val_loader):
             input = input.cuda()
             label = label.float().flatten().cuda()
             output = model(input).flatten()
             loss = criterion(label,output)
-            RMSE += torch.sqrt(loss)
-    RMSE /= len(val_loader)
-    print('==> Validate Accuracy:  RMSE {:.3f}'.format(RMSE))
-    return RMSE
+            acc += torch.sqrt(loss)
+    acc /= len(val_loader)
+    print('==> Validate Accuracy:  RMSE  {:.3f}'.format(acc))
+    return acc
 
 
 def main():
@@ -132,11 +135,7 @@ def main():
                         eps=config.eps,
                         weight_decay=config.wd)
     # criterion
-    l1_criterion = None
-    if config.use_huber:
-        l1_criterion = nn.SmoothL1Loss()
-    else:
-        l1_criterion = nn.L1Loss()
+    l1_criterion = nn.L1Loss()
     l2_criterion = nn.MSELoss()
 
     # Scheduler

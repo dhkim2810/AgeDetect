@@ -13,6 +13,7 @@ from util import create_params
 from model import create_model
 
 from collections import OrderedDict
+from tqdm import tqdm
 normalize = transforms.Normalize(mean=[0.5754, 0.4529, 0.3986],
                                     std=[0.2715, 0.2423, 0.2354])
 
@@ -62,9 +63,9 @@ def eval():
     if config.use_gpu and torch.cuda.is_available():
         model = model.cuda()
     
-    print('Make an evaluation csv file for submission...')
+    print('Make an evaluation csv file(best) for submission...')
     Category = []
-    for input in test_loader:
+    for input in tqdm(test_loader):
         input = input.cuda()
         output = [model(input).item()]
         # output = torch.argmax(output, dim=1)
@@ -95,9 +96,9 @@ def eval():
     if config.use_gpu and torch.cuda.is_available():
         model = model.cuda()
     
-    print('Make an evaluation csv file for submission...')
+    print('Make an evaluation csv file(latest) for submission...')
     Category = []
-    for input in test_loader:
+    for input in tqdm(test_loader):
         input = input.cuda()
         output = [model(input).item()]
         # output = torch.argmax(output, dim=1)
