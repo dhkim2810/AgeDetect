@@ -16,7 +16,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from tqdm import tqdm as tqdm
 
-from util import *
+from rb_util import *
 from model import create_model
 import data_loader
 from collections import OrderedDict
@@ -109,7 +109,7 @@ def main():
     else:
         model = create_model(config)
     available_gpu = torch.cuda.device_count()
-    if available_gpu > 1:
+    if available_gpu > 0:
         model = torch.nn.DataParallel(model, device_ids=range(available_gpu))
 
     # Check if checkpoint folder exist
@@ -142,6 +142,7 @@ def main():
                         eps=config.eps,
                         weight_decay=config.wd)
     # criterion
+    criterion = nn.CrossEntropyLoss()
     l1_criterion = nn.L1Loss()
     l2_criterion = nn.MSELoss()
 
@@ -158,6 +159,7 @@ def main():
     
     if config.use_gpu and torch.cuda.is_available():
         model = model.cuda()
+        criterion = criterion.cuda()
         l1_criterion = l1_criterion.cuda()
         l2_criterion = l2_criterion.cuda()
         print("Using cuda..")
@@ -170,8 +172,8 @@ def main():
 
         # train for one epoch
         start_time = time.time()
-        train_loss = train(config, train_loader, epoch, model, optimizer,l1_criterion, l2_criterion)
-        val_acc = validation(val_loader,epoch,model,l2_criterion)
+        train_loss = train(config, train_loader, epoch, model, optimizer,criterion)
+        val_acc = validation(val_loader,epoch,model,criterion)
         training_loss.append(train_loss)
         validation_loss.append(val_acc)
 

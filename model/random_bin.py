@@ -1,5 +1,16 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+class Classifier(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        self.body = nn.Sequential(
+            nn.Linear(in_channels, out_channels),
+            nn.Softmax(dim=2)
+        )
+    
+    def forward(self,x):
+        return self.body(x)
 
 class Bottleneck(nn.Module):
     def __init__(self, in_channels, growth_rate):
@@ -33,7 +44,7 @@ class Transition(nn.Module):
         return self.down_sample(x)
 
 class DenseNet(nn.Module):
-    def __init__(self, block, nblocks, growth_rate=12, reduction=0.5, num_class=100):
+    def __init__(self, block, nblocks, growth_rate=12, reduction=0.5, num_class=100, centroids=None, M=30,N=10):
         super().__init__()
         self.growth_rate = growth_rate
 
@@ -58,7 +69,11 @@ class DenseNet(nn.Module):
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
 
-        self.linear = nn.Linear(inner_channels, num_class)
+        # Random Bin
+        self.M = M
+        self.N = N
+        self.fc512 = nn.Linear(inner_channels, 512)
+        self.classifiers = nn.ModuleList([Classifier(512,N) for i in range(M)])
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -74,7 +89,16 @@ class DenseNet(nn.Module):
         output = self.features(output)
         output = self.avgpool(output)
         output = output.view(output.size()[0], -1)
-        output = self.linear(output)
+        # output size 452
+        # fc512
+        output = F.relu(self.fc512(output))
+        # Concat concatenationlayer(3,m)
+        new_output = None
+        for classifier in self.classifiers:
+            output = classifier(output)
+            output = output.unsqueeze(2)
+            new_output = torch.cat((new_output, output), dim=2)
+        output = new_output
         return output
 
     def _make_dense_layers(self, block, in_channels, nblocks):
@@ -84,5 +108,5 @@ class DenseNet(nn.Module):
             in_channels += self.growth_rate
         return dense_block
 
-def densenet(num_class):
-    return DenseNet(Bottleneck, [3,6,10,7], growth_rate=32,num_class=num_class)
+def random_bin(num_class=None, M=30, N=10):
+    return DenseNet(Bottleneck, [3,6,10,7], growth_rate=32,num_class=num_class, M=M, N=N)

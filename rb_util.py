@@ -1,4 +1,7 @@
+import math
 import torch
+import random
+import numpy as np
 import argparse
 
 def create_params():
@@ -33,23 +36,17 @@ def create_params():
     parser.add_argument('--arch', default='resent18',type=str,
                         choices=['resnet18','spinalresnet18','densenet','mymodel'])
     parser.add_argument('--random_bin', action='store_true')
-    parser.add_argument('--M', default=30,type=int)
-    parser.add_argument('--N', default=10,type=int)
+    parser.add_argument('--m', default=30,type=int)
+    parser.add_argument('--n', default=10,type=int)
     # Data Augmentation
     parser.add_argument('--data_dir',default='/root/volume/AgeDetect/dataset', type=str)
     parser.add_argument('--img_size',default=100,type=int)
     parser.add_argument('--da', action='store_true',
                         help='Traditional data augmentation such as flipping')
-    parser.add_argument('--cutout',action='store_true')
-    parser.add_argument('--n_holes',default=1,type=int)
-    parser.add_argument('--length',default=16,type=int)
-    parser.add_argument('--normalize', action='store_true')
     # Training/Evaluation
     parser.add_argument('--eval', action='store_true')
     parser.add_argument('--epochs', default=150, type=int,
                         help='number of total epochs to run')
-
-    parser.add_argument('--use_l1_loss',action='store_true')
 
     parser.add_argument('--optim', default='sgd',type=str,
                         choices=['sgd','adam'])
@@ -68,7 +65,7 @@ def create_params():
     parser.add_argument('--gamma',default=0.2,type=float)
     parser.add_argument('--cycle',default=0.95,type=float)
     
-    return parser.parse_known_args()
+    return parser.parse_args()
 
 
 class AverageMeter(object):
@@ -135,3 +132,32 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
+
+
+def random_discretization(labels, c, N, M, val_labels=None):
+    centroids = torch.zeros(N, M)
+    class_labels = torch.zeros(1, 1, N*M, len(labels))
+    val_class_labels = None
+
+    for m in range(M):
+        cm = torch.randint(1,c,(N,))
+        cm = cm.sort().values
+        centroids[:,m] = cm
+        for i in range(len(labels)):
+            d = abs(labels[i]-cm)
+            argmin = min(d)
+            class_labels[:,:,m*N+argmin,i] = i
+
+    if val_labels is not None:
+        val_class_labels = torch.zeros(1,1,N*M,len(val_labels))
+        for m in range(M):
+            cm = centroids[:,m]
+            for i in range(len(val_labels)):
+                d = abs(val_labels[i]-cm)
+                argmin = min(d)
+                val_class_labels[1,1,m*N+argmin,i] = 1
+    
+    return centroids, class_labels, val_class_labels
+
+#smoothedCrossEntropyLayer
+
