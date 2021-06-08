@@ -1,112 +1,87 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+def Conv(in_channels, out_channels, kerner_size, stride, padding):
+    return nn.Sequential(
+        nn.Conv2d(in_channels, out_channels, kerner_size, stride, padding, bias=False),
+        nn.BatchNorm2d(out_channels),
+        nn.ReLU(True),
+    )
+
 class Classifier(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channel, out_channel):
+        super(Classifier, self).__init__()
         self.body = nn.Sequential(
-            nn.Linear(in_channels, out_channels),
-            nn.Softmax(dim=2)
-        )
-    
-    def forward(self,x):
+            nn.Linear(in_channel, out_channel),
+            nn.Softmax(dim=1))
+    def forward(self, x):
         return self.body(x)
 
-class Bottleneck(nn.Module):
-    def __init__(self, in_channels, growth_rate):
-        super().__init__()
-        #"""In  our experiments, we let each 1×1 convolution
-        #produce 4k feature-maps."""
-        inner_channel = 4 * growth_rate
 
-        self.bottle_neck = nn.Sequential(
-            nn.BatchNorm2d(in_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels, inner_channel, kernel_size=1, bias=False),
-            nn.BatchNorm2d(inner_channel),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(inner_channel, growth_rate, kernel_size=3, padding=1, bias=False)
+class RandomBin(nn.Module):
+    def __init__(self, N, M):
+        super(RandomBin, self).__init__()
+        self.conv1 = Conv(3, 16, 3, 1, 1)
+        self.conv2 = Conv(16, 16, 3, 1, 1)
+        self.pool1 = nn.MaxPool2d(2, 2)
+        self.conv3 = Conv(16, 32, 3, 1, 1)
+        self.conv4 = Conv(32, 32, 3, 1, 1)
+        self.pool2 = nn.MaxPool2d(2, 2)
+        self.conv5 = Conv(32, 64, 3, 1, 1)
+        self.conv6 = Conv(64, 64, 3, 1, 1)
+        self.pool3 = nn.MaxPool2d(2, 2)
+        self.conv7 = Conv(64, 128, 3, 1, 1)
+        self.conv8 = Conv(128, 128, 3, 1, 1)
+        self.conv9 = Conv(128, 128, 3, 1, 1)
+        self.pool5 = nn.MaxPool2d(2, 2)
+        self.conv10 = Conv(128, 128, 3, 1, 1)
+        self.conv11 = Conv(128, 128, 3, 1, 1)
+        self.conv12 = Conv(128, 128, 3, 1, 1)
+        self.HP = nn.Sequential(
+            nn.MaxPool2d(2, 2),
+            nn.AvgPool2d(kernel_size=7, stride=1)
         )
 
-    def forward(self, x):
-        return torch.cat([x, self.bottle_neck(x)], 1)
-
-class Transition(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.down_sample = nn.Sequential(
-            nn.BatchNorm2d(in_channels),
-            nn.Conv2d(in_channels, out_channels, 1, bias=False),
-            nn.AvgPool2d(2, stride=2)
-        )
-
-    def forward(self, x):
-        return self.down_sample(x)
-
-class DenseNet(nn.Module):
-    def __init__(self, block, nblocks, growth_rate=12, reduction=0.5, num_class=100, centroids=None, M=30,N=10):
-        super().__init__()
-        self.growth_rate = growth_rate
-
-        inner_channels = 2 * growth_rate
-
-        self.conv1 = nn.Conv2d(3, inner_channels, kernel_size=3, padding=1, bias=False)
-
-        self.features = nn.Sequential()
-
-        for index in range(len(nblocks) - 1):
-            self.features.add_module("dense_block_layer_{}".format(index), self._make_dense_layers(block, inner_channels, nblocks[index]))
-            inner_channels += growth_rate * nblocks[index]
-
-            out_channels = int(reduction * inner_channels) # int() will automatic floor the value
-            self.features.add_module("transition_layer_{}".format(index), Transition(inner_channels, out_channels))
-            inner_channels = out_channels
-
-        self.features.add_module("dense_block{}".format(len(nblocks) - 1), self._make_dense_layers(block, inner_channels, nblocks[len(nblocks)-1]))
-        inner_channels += growth_rate * nblocks[len(nblocks) - 1]
-        self.features.add_module('bn', nn.BatchNorm2d(inner_channels))
-        self.features.add_module('relu', nn.ReLU(inplace=True))
-
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-
-        # Random Bin
-        self.M = M
-        self.N = N
-        self.fc512 = nn.Linear(inner_channels, 512)
-        self.classifiers = nn.ModuleList([Classifier(512,N) for i in range(M)])
+        self.classifiers = nn.ModuleList([Classifier(128,N) for _ in range(M)])
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight.data, mode='fan_out')
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
             elif isinstance(m, nn.Linear):
-                m.bias.data.zero_()
+                nn.init.xavier_normal_(m.weight)
+                nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
-        output = self.conv1(x)
-        output = self.features(output)
-        output = self.avgpool(output)
-        output = output.view(output.size()[0], -1)
-        # output size 452
-        # fc512
-        output = F.relu(self.fc512(output))
-        # Concat concatenationlayer(3,m)
-        new_output = None
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.pool1(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        x = self.pool2(x)
+        x = self.conv5(x)
+        x = self.conv6(x)
+        x = self.pool3(x)
+        x = self.conv7(x)
+        x = self.conv8(x)
+        x = self.conv9(x)
+        x = self.pool5(x)
+        x = self.conv10(x)
+        x = self.conv11(x)
+        x = self.conv12(x)
+        x = self.HP(x)
+        x = x.view((x.size(0), -1))
+        new_x = torch.Tensor([]).cuda()
         for classifier in self.classifiers:
-            output = classifier(output)
-            output = output.unsqueeze(2)
-            new_output = torch.cat((new_output, output), dim=2)
-        output = new_output
-        return output
+            tmp = classifier(x)
+            new_x = torch.cat((new_x, tmp), dim=1)
+        return new_x
 
-    def _make_dense_layers(self, block, in_channels, nblocks):
-        dense_block = nn.Sequential()
-        for index in range(nblocks):
-            dense_block.add_module('bottle_neck_layer_{}'.format(index), block(in_channels, self.growth_rate))
-            in_channels += self.growth_rate
-        return dense_block
 
-def random_bin(num_class=None, M=30, N=10):
-    return DenseNet(Bottleneck, [3,6,10,7], growth_rate=32,num_class=num_class, M=M, N=N)
+def random_bin(M=30, N=10):
+    return RandomBin(N, M)

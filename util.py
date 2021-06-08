@@ -31,7 +31,7 @@ def create_params():
     parser.add_argument('--trial', default=1,type=int)
     # Model
     parser.add_argument('--arch', default='resent18',type=str,
-                        choices=['resnet18','spinalresnet18','densenet','mymodel'])
+                        choices=['resnet18','spinalresnet18','densenet','random_bin'])
     parser.add_argument('--random_bin', action='store_true')
     parser.add_argument('--M', default=30,type=int)
     parser.add_argument('--N', default=10,type=int)
@@ -68,7 +68,7 @@ def create_params():
     parser.add_argument('--gamma',default=0.2,type=float)
     parser.add_argument('--cycle',default=0.95,type=float)
     
-    return parser.parse_known_args()
+    return parser.parse_args()
 
 
 class AverageMeter(object):
@@ -135,3 +135,10 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
+
+def cal_loss(target, y_hat, y_bar):
+    loss_ = 0.
+    for batch in range(len(target)):
+        tmp = ((y_hat[batch]-target[batch])**2).mean() - ((y_hat[batch]-y_bar[batch])**2).mean()
+        loss_ += tmp
+    return loss_/len(target)

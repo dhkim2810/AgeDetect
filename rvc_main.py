@@ -16,36 +16,34 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from tqdm import tqdm as tqdm
 
-from rb_util import *
+from util import *
 from model import create_model
 import data_loader
 from collections import OrderedDict
 
-def train(config, train_loader, epoch, model, optimizer, l1_criterion, l2_criterion):
+def train(config, train_loader, epoch, model, optimizer):
     batch_time = AverageMeter('Time', ':6.3f')
-    L1Loss = AverageMeter('L1_Loss', ':.4e')
-    L2Loss = AverageMeter('L2_Loss', ':.4e')
-    progress = ProgressMeter(len(train_loader), batch_time, L1Loss,L2Loss, prefix="Epoch: [{}]".format(epoch))
+    # l2 = AverageMeter('L2 Loss', ':.4e')
+    # l1 = AverageMeter('L1 Loss', ':.4e')
+    loss = AverageMeter('CE Loss', ':.4e')
+    progress = ProgressMeter(len(train_loader), batch_time, loss, prefix="Epoch: [{}]".format(epoch))
     # switch to train mode
-    model.train()
-    model.zero_grad()
+    model.train()    
     end = time.time()
-    for i, (input, label) in enumerate(train_loader):
+    for i, (input, label, age) in enumerate(train_loader):
         # measure data loading time
+        age = age.float().cuda()
         input = input.cuda()
-        label = label.float().flatten().cuda()
+        label = label.cuda().squeeze()
         # compute output
-        output = model(input).flatten()
-        l1_ = l1_criterion(output, label)
-        l2_ = l2_criterion(output, label)
-        L1Loss.update(l1_.item(), input.size(0))
-        L2Loss.update(l2_.item(), input.size(0))
+        output = model(input)
+
+        Loss = (label*-torch.log(output)).sum()
+        loss.update(Loss.item(), 1)
+
         # compute gradient and do SGD step
         optimizer.zero_grad()
-        if config.use_l1_loss:
-            l1_.backward()
-        else:
-            l2_.backward()
+        Loss.backward()
         optimizer.step()
 
         # measure elapsed time
@@ -54,22 +52,30 @@ def train(config, train_loader, epoch, model, optimizer, l1_criterion, l2_criter
 
         if i % config.print_freq == 0:
             progress.print(i)
-    return [L1Loss.avg, L2Loss.avg]
+    return loss.avg
     # print('==> Train Accuracy: Loss {losses:.3f} || scores {r2_score:.4e}'.format(losses=losses, r2_score=r2))
 
-def validation(val_loader,epoch, model, criterion):
+def validation(config, val_loader, model, centroid):
     model.eval()
-    with torch.set_grad_enabled(False):
-        loss_, acc, num_ex = 0,0,0
-        for i,(input,label) in enumerate(val_loader):
+    with torch.no_grad():
+        mse, num_samples = 0, 0
+        for i,(input,label,age) in enumerate(val_loader):
             input = input.cuda()
-            label = label.float().flatten().cuda()
-            output = model(input).flatten()
-            loss = criterion(label,output)
-            acc += torch.sqrt(loss)
-    acc /= len(val_loader)
-    print('==> Validate Accuracy:  RMSE  {:.3f}'.format(acc))
-    return acc
+            label = label.squeeze().cuda()
+
+            # compute output
+            output = model(input) # BS * (N*M)
+            est = (output.detach().cpu() * centroid.view(1,-1)).view(-1, config.M, config.N)
+            y_hat = est.sum(dim=2)
+            y_bar = y_hat.mean(dim=1)
+
+            mse += cal_loss(age, y_hat, y_bar)
+            num_samples += 1
+
+        mse = mse / num_samples
+        RMSE = torch.sqrt(mse)
+    print('==> Validate Accuracy:  RMSE {:.3f}'.format(RMSE))
+    return RMSE
 
 
 def main():
@@ -77,28 +83,23 @@ def main():
     config = create_params()
     print(config)
 
-    torch.manual_seed(config.seed)
     if config.cudnn:
         cudnn.benchmark = True
     if config.use_gpu and torch.cuda.is_available():
         torch.cuda.manual_seed(config.seed)
 
-    train_loader, val_loader = data_loader.get_data_loader(
-                                config,
-                                config.data_dir+'/train',
-                                config.batch_size,
-                                config.workers,
-                                config.train_val_ratio)
-
+    
     start_epoch = 0
     training_loss = []
     validation_loss = []
+    centroid, _ = torch.sort(torch.randint(1,120,(config.M,config.N)),dim=1)
     if config.resume:
         print("Starting from checkpoint")
         checkpoint = torch.load(config.resume_dir)
         start_epoch = checkpoint['epoch']
         training_loss = checkpoint['train_loss']
         validation_loss = checkpoint['val_loss']
+        centroid = checkpoint['centroid']
         model = create_model(config)
         new_state_dict = OrderedDict()
         for k, v in checkpoint['state_dict'].items():
@@ -108,8 +109,19 @@ def main():
         print("Model loaded from checkpoint. Starting from epoch ",start_epoch)
     else:
         model = create_model(config)
+
+    # Load Data
+    train_loader, val_loader = data_loader.get_data_loader(
+                                config,
+                                config.data_dir+'/train',
+                                config.batch_size,
+                                config.workers,
+                                config.train_val_ratio,
+                                centroid)
+
+    # Utilize GPU
     available_gpu = torch.cuda.device_count()
-    if available_gpu > 0:
+    if available_gpu > 1:
         model = torch.nn.DataParallel(model, device_ids=range(available_gpu))
 
     # Check if checkpoint folder exist
@@ -143,8 +155,6 @@ def main():
                         weight_decay=config.wd)
     # criterion
     criterion = nn.CrossEntropyLoss()
-    l1_criterion = nn.L1Loss()
-    l2_criterion = nn.MSELoss()
 
     # Scheduler
     scheduler = None
@@ -160,8 +170,6 @@ def main():
     if config.use_gpu and torch.cuda.is_available():
         model = model.cuda()
         criterion = criterion.cuda()
-        l1_criterion = l1_criterion.cuda()
-        l2_criterion = l2_criterion.cuda()
         print("Using cuda..")
 
     best_acc = 1e5
@@ -172,8 +180,8 @@ def main():
 
         # train for one epoch
         start_time = time.time()
-        train_loss = train(config, train_loader, epoch, model, optimizer,criterion)
-        val_acc = validation(val_loader,epoch,model,criterion)
+        train_loss = train(config, train_loader, epoch, model, optimizer)
+        val_acc = validation(config, val_loader,model,centroid)
         training_loss.append(train_loss)
         validation_loss.append(val_acc)
 
@@ -188,7 +196,8 @@ def main():
                       'config':config,
                       'state_dict':model.state_dict(),
                       'train_loss':training_loss,
-                      'val_loss':validation_loss}
+                      'val_loss':validation_loss,
+                      'centroid':centroid}
         
         # Save model for best accuracy
         if best_acc > val_acc:
