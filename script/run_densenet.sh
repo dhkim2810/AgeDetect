@@ -4,4 +4,4 @@ python /root/volume/AgeDetect/main.py \
         --scheduler multi_step --milestone 300 400 450 \
         --epochs 500 --img_size 144 --da --batch_size 64
 python /root/volume/AgeDetect/eval.py \
-        --use_gpu --trial 6 --arch densenet  --img_size 144
+        --eval --use_gpu --trial 6 --arch densenet  --img_size 144

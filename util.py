@@ -40,9 +40,9 @@ def create_params():
     parser.add_argument('--img_size',default=100,type=int)
     parser.add_argument('--da', action='store_true',
                         help='Traditional data augmentation such as flipping')
-    parser.add_argument('--cutout',action='store_true')
-    parser.add_argument('--n_holes',default=1,type=int)
-    parser.add_argument('--length',default=16,type=int)
+    parser.add_argument('--thumbnail',action='store_true')
+    parser.add_argument('--thumbnail_size', default=48, type=int)
+    parser.add_argument('--thumbnail_prob',default=0.8,type=float)
     parser.add_argument('--normalize', action='store_true')
     # Training/Evaluation
     parser.add_argument('--eval', action='store_true')
@@ -142,3 +142,6 @@ def cal_loss(target, y_hat, y_bar):
         tmp = ((y_hat[batch]-target[batch])**2).mean() - ((y_hat[batch]-y_bar[batch])**2).mean()
         loss_ += tmp
     return loss_/len(target)
+
+from torchvision import transforms
+flip = transforms.RandomHorizontalFlip(p=1.)

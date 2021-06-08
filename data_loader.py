@@ -3,11 +3,41 @@ import torch
 import numpy as np
 from glob import glob
 from PIL import Image, ImageFile
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torchvision import transforms
 from tqdm import tqdm as tqdm
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+class Thumbnail(object):
+    def __init__(self, thumb_size, participation_rate):
+        self.thumb_size = thumb_size
+        self.participation_rate = participation_rate
+
+    def __call__(self, img):
+        
+        if np.random.rand(1) > self.participation_rate:
+            return img
+        
+        img = img.clone()
+        
+        h = img.size(1)
+        w = img.size(2)
+        
+        thumbnail = F.interpolate(img, size=self.thumb_size)
+        
+        y = np.random.randint(h)
+        x = np.random.randint(w)
+        
+        y1 = np.clip(y - self.thumb_size // 2, 0, h)
+        y2 = np.clip(y + self.thumb_size // 2, 0, h)
+        x1 = np.clip(x - self.thumb_size // 2, 0, w)
+        x2 = np.clip(x + self.thumb_size // 2, 0, w)
+        
+        centre = self.thumb_size//2
+        img[:, y1:y2, x1:x2] = thumbnail[:, centre - min(y, centre) : centre + min(h - y, centre), centre - min(x, centre) : centre + min(w - x, centre)]
+        return img
 
 class FacialDataset(Dataset):
     def __init__(self, data_path, transform, centroid):
@@ -47,11 +77,15 @@ def get_data_loader(config, data_path, batch_size, num_workers,train_val_ratio, 
     train_transform = transforms.Compose([])
     train_transform.transforms.append(transforms.Resize((config.img_size,config.img_size)))
     if config.da:
+        train_transform.transforms.append(transforms.ColorJitter(brightness=(0.5, 1.5), contrast=(0.5, 1.5), saturation=(0.5, 1.5)))
         train_transform.transforms.append(transforms.RandomHorizontalFlip())
         train_transform.transforms.append(transforms.RandomGrayscale())
         train_transform.transforms.append(transforms.RandomRotation(20))
     train_transform.transforms.append(transforms.ToTensor())
     train_transform.transforms.append(normalize)
+    if config.thumbnail:
+        train_transform.transforms.append(Thumbnail(48, 0.8))
+
 
     val_transform = transforms.Compose([
         transforms.Resize((config.img_size,config.img_size)),
