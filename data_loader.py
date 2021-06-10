@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torchvision import transforms
 from tqdm import tqdm as tqdm
+from util import *
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -40,30 +41,36 @@ class Thumbnail(object):
         return img
 
 class FacialDataset(Dataset):
-    def __init__(self, data_path, transform, centroid):
+    def __init__(self, data_path, transform, model, centroid):
         if not os.path.exists(data_path):
             raise Exception(f"[!] {self.data_path} not existed")
         self.imgs = []
-        self.age = []
+        self.labels = []
         self.transform = transform
+        self.model = model
         self.centroid = centroid
-        if centroid is not None:
+        if self.model == 'random_bin':
             self.M = centroid.shape[0]
             self.N = centroid.shape[1]
         self.age_path = sorted(glob(os.path.join(data_path, "*.*")))
         for pth in self.age_path:
             img = pth
             label = int(pth.split('_')[0].split('/')[-1])
-            self.age.append(label)
+            self.labels.append(label)
             self.imgs.append(img)
     def __getitem__(self, idx):
         image = self.transform(Image.open(self.imgs[idx]))
-        age = self.age[idx]
-        if self.centroid is not None:
+        age = self.labels[idx]
+        if self.model == 'random_bin':
             _, index = torch.min(abs(age-self.centroid),dim=1)
-            label = torch.zeros(self.M*self.N, 1, dtype=torch.long)
+            label = torch.zeros(self.M*self.N, dtype=torch.long)
             for i,item in enumerate(index):
                 label[self.N*i+item] = 1
+            return image, label, age
+        elif self.model == 'dldlv2':
+            label = [normal_sampling(int(age), i) for i in range(120)]
+            label = [i if i > 1e-15 else 1e-15 for i in label]
+            label = torch.Tensor(label)
             return image, label, age
         return image, age
 
@@ -93,11 +100,11 @@ def get_data_loader(config, data_path, batch_size, num_workers,train_val_ratio, 
         normalize
     ])
     
-    full_dataset = FacialDataset(data_path, val_transform, centroid)
+    full_dataset = FacialDataset(data_path, val_transform, config.arch, centroid)
     train_size = int(train_val_ratio * len(full_dataset))
     val_size = len(full_dataset) - train_size
     train_dataset, val_dataset = torch.utils.data.random_split(full_dataset, [train_size, val_size])
-    train_dataset.dataset = FacialDataset(data_path, train_transform, centroid)
+    train_dataset.dataset = FacialDataset(data_path, train_transform, config.arch, centroid)
     train_loader = torch.utils.data.DataLoader(dataset=train_dataset,batch_size=batch_size,shuffle=True,num_workers=num_workers, pin_memory=False)
     val_loader = torch.utils.data.DataLoader(dataset=val_dataset,batch_size=batch_size,shuffle=False,num_workers=num_workers, pin_memory=True)
     return train_loader, val_loader

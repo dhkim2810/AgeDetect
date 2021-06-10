@@ -21,29 +21,44 @@ from model import create_model
 import data_loader
 from collections import OrderedDict
 
-def train(config, train_loader, epoch, model, optimizer):
+def train(config, train_loader, epoch, model, optimizer, centroid):
     batch_time = AverageMeter('Time', ':6.3f')
-    # l2 = AverageMeter('L2 Loss', ':.4e')
+    l1 = AverageMeter('L2 Loss', ':.4e')
+    kl = AverageMeter('KL Loss', ':.4e')
     # l1 = AverageMeter('L1 Loss', ':.4e')
-    loss = AverageMeter('CE Loss', ':.4e')
-    progress = ProgressMeter(len(train_loader), batch_time, loss, prefix="Epoch: [{}]".format(epoch))
+    # loss = AverageMeter('CE Loss', ':.4e')
+    progress = ProgressMeter(len(train_loader), batch_time, l1, kl, prefix="Epoch: [{}]".format(epoch))
     # switch to train mode
-    model.train()    
+    model.train()
+    kl_criterion = kl_loss
+    l1_criterion = L1_loss
     end = time.time()
     for i, (input, label, age) in enumerate(train_loader):
         # measure data loading time
         age = age.float().cuda()
         input = input.cuda()
-        label = label.cuda().squeeze()
+        label = label.cuda()
         # compute output
         output = model(input)
+        
+        if config.arch == 'random_bin':
+            est = (output * centroid.view(1,-1)).view(-1, config.M, config.N)
+            y_hat = est.sum(dim=2)
+            ages = y_hat.mean(dim=1)
+        elif config.arch == 'dldlv2':
+            ages = torch.sum(output*centroid, dim=1)
+        
+        l1_ = l1_criterion(ages, age)
+        kl_ = kl_criterion(output, label)
+        
+        l1.update(l1_.item(), input.size(0))
+        kl.update(kl_.item(), input.size(0))
 
-        Loss = (label*-torch.log(output)).sum()
-        loss.update(Loss.item(), 1)
+        total_loss = l1_ + kl_
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
-        Loss.backward()
+        total_loss.backward()
         optimizer.step()
 
         # measure elapsed time
@@ -52,29 +67,42 @@ def train(config, train_loader, epoch, model, optimizer):
 
         if i % config.print_freq == 0:
             progress.print(i)
-    return loss.avg
+    return l1.avg, kl.avg
     # print('==> Train Accuracy: Loss {losses:.3f} || scores {r2_score:.4e}'.format(losses=losses, r2_score=r2))
 
 def validation(config, val_loader, model, centroid):
     model.eval()
     with torch.no_grad():
+        l2 = nn.MSELoss().cuda()
         mse, num_samples = 0, 0
         for i,(input,label,age) in enumerate(val_loader):
+            flipped = flip(input).cuda()
             input = input.cuda()
+            age = age.cuda()
             label = label.squeeze().cuda()
 
             # compute output
-            output = model(input) # BS * (N*M)
-            est = (output.detach().cpu() * centroid.view(1,-1)).view(-1, config.M, config.N)
-            y_hat = est.sum(dim=2)
-            y_bar = y_hat.mean(dim=1)
+            output = model(input)
+            output_flipped = model(flipped)
 
-            mse += cal_loss(age, y_hat, y_bar)
-            num_samples += 1
+            if config.arch == 'random_bin':
+                est = (output * centroid.view(1,-1)).view(-1, config.M, config.N)
+                y_hat = est.sum(dim=2)
+                ages = y_hat.mean(dim=1)
+                est_flip = (output_flipped * centroid.view(1,-1)).view(-1, config.M, config.N)
+                y_hat_flip = est_flip.sum(dim=2)
+                ages_flip = y_hat_flip.mean(dim=1)
+            elif config.arch == 'dldlv2':
+                ages = torch.sum(output*centroid, dim=1)
+                ages_flip = torch.sum(output_flipped*centroid, dim=1)
 
-        mse = mse / num_samples
+            ages = ages/2 + ages_flip/2
+            l2_ = l2(age, ages)
+            mse += torch.sum((ages-age)**2)
+            num_samples += label.size(0)
+        mse = mse.float() / num_samples
         RMSE = torch.sqrt(mse)
-    print('==> Validate Accuracy:  RMSE {:.3f}'.format(RMSE))
+    print('==> Validate Accuracy:  L2 distance {:.3f} || RMSE {:.3f}'.format(l2_,RMSE))
     return RMSE
 
 
@@ -92,7 +120,11 @@ def main():
     start_epoch = 0
     training_loss = []
     validation_loss = []
-    centroid, _ = torch.sort(torch.randint(1,120,(config.M,config.N)),dim=1)
+    centroid = None
+    if config.arch == 'random_bin':
+        centroid, _ = torch.sort(torch.randint(1,120,(config.M,config.N)),dim=1)
+    elif config.arch == 'dldlv2':
+        centroid = torch.Tensor([i for i in range(120)]).cuda()
     if config.resume:
         print("Starting from checkpoint")
         checkpoint = torch.load(config.resume_dir)
@@ -170,6 +202,7 @@ def main():
     if config.use_gpu and torch.cuda.is_available():
         model = model.cuda()
         criterion = criterion.cuda()
+        centroid = centroid.cuda()
         print("Using cuda..")
 
     best_acc = 1e5
@@ -180,7 +213,7 @@ def main():
 
         # train for one epoch
         start_time = time.time()
-        train_loss = train(config, train_loader, epoch, model, optimizer)
+        train_loss = train(config, train_loader, epoch, model, optimizer, centroid)
         val_acc = validation(config, val_loader,model,centroid)
         training_loss.append(train_loss)
         validation_loss.append(val_acc)

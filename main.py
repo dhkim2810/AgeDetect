@@ -160,7 +160,6 @@ def main():
         model = model.cuda()
         l1_criterion = l1_criterion.cuda()
         l2_criterion = l2_criterion.cuda()
-        ce_criterion = ce_criterion.cuda()
         print("Using cuda..")
 
     best_acc = 1e5

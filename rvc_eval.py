@@ -71,15 +71,24 @@ def eval():
     print('Make an evaluation csv file(best) for submission...')
     Category = []
     for input in tqdm(test_loader):
+        flipped = flip(input).cuda()
         input = input.cuda()
-        # output = [model(input).item()]
-        # output = torch.argmax(output, dim=1)
-        # Category = Category + output
+        # compute output
         output = model(input)
-        est = (output.detach().cpu() * centroid.view(1,-1)).view(-1, 30, 10)
-        y_hat = est.sum(dim=2)
-        y_bar = y_hat.mean(dim=1)
-        Category = Category + [y_bar.item()]
+        output_flipped = model(flipped)
+        if config.arch == 'random_bin':
+            est = (output * centroid.view(1,-1)).view(-1, config.M, config.N)
+            y_hat = est.sum(dim=2)
+            y_bar = y_hat.mean(dim=1)
+            est_flip = (output_flipped * centroid.view(1,-1)).view(-1, config.M, config.N)
+            y_hat_flip = est_flip.sum(dim=2)
+            y_bar_flip = y_hat_flip.mean(dim=1)
+
+            output = y_bar/2 + y_bar_flip/2
+            output = [output.item()]
+        elif config.arch == 'dldlv2':
+            output = [torch.sum(output*centroid, dim=1).item()/2 + torch.sum(output_flipped*centroid, dim=1).item()/2]
+        Category = Category + output
 
     Id = list(range(0, len(Category)))
     samples = {
@@ -112,15 +121,24 @@ def eval():
     print('Make an evaluation csv file(latest) for submission...')
     Category = []
     for input in tqdm(test_loader):
+        flipped = flip(input).cuda()
         input = input.cuda()
-        # output = [model(input).item()]
-        # output = torch.argmax(output, dim=1)
-        # Category = Category + output
+        # compute output
         output = model(input)
-        est = (output.detach().cpu() * centroid.view(1,-1)).view(-1, 30, 10)
-        y_hat = est.sum(dim=2)
-        y_bar = y_hat.mean(dim=1)
-        Category = Category + [y_bar.item()]
+        output_flipped = model(flipped)
+        if config.arch == 'random_bin':
+            est = (output * centroid.view(1,-1)).view(-1, config.M, config.N)
+            y_hat = est.sum(dim=2)
+            y_bar = y_hat.mean(dim=1)
+            est_flip = (output_flipped * centroid.view(1,-1)).view(-1, config.M, config.N)
+            y_hat_flip = est_flip.sum(dim=2)
+            y_bar_flip = y_hat_flip.mean(dim=1)
+
+            output = y_bar/2 + y_bar_flip/2
+            output = [output.item()]
+        elif config.arch == 'dldlv2':
+            output = [torch.sum(output*centroid, dim=1).item()/2 + torch.sum(output_flipped*centroid, dim=1).item()/2]
+        Category = Category + output
 
     Id = list(range(0, len(Category)))
     samples = {

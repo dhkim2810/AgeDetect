@@ -1,8 +1,10 @@
-python /root/volume/AgeDetect/main.py \
-        --use_gpu --trial 6 --arch densenet \
-        --optim sgd --learning_rate 1e-4 --nesterov --gamma 0.1 \
-        --scheduler multi_step --milestone 480 600 720 \
-        --epochs 800 --img_size 120 --da --batch_size 64 --use_l1_loss
-python /root/volume/AgeDetect/eval.py \
-        --use_gpu --eval --trial 6 --arch densenet \
-        --img_size 120
+python /root/volume/AgeDetect/rvc_main.py \
+        --use_gpu --trial 12 --cudnn --arch random_bin --M 8 --N 29 \
+        --optim adam --learning_rate 1e-3 \
+        --scheduler multi_step --milestone 60 90 --gamma 0.1 \
+        --epochs 120 --img_size 120 --da --batch_size 64 \
+        --train_val_ratio 0.99 --thumbnail
+python /root/volume/AgeDetect/rvc_eval.py \
+        --eval --use_gpu --trial 12 --cudnn --arch random_bin \
+        --img_size 80
+python /root/volume/AgeDetect/rvc_plot.py --arch random_bin --trial 12

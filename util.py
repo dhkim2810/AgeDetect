@@ -31,7 +31,7 @@ def create_params():
     parser.add_argument('--trial', default=1,type=int)
     # Model
     parser.add_argument('--arch', default='resent18',type=str,
-                        choices=['resnet18','spinalresnet18','densenet','random_bin'])
+                        choices=['resnet18','spinalresnet18','densenet','random_bin','dldlv2'])
     parser.add_argument('--random_bin', action='store_true')
     parser.add_argument('--M', default=30,type=int)
     parser.add_argument('--N', default=10,type=int)
@@ -142,6 +142,23 @@ def cal_loss(target, y_hat, y_bar):
         tmp = ((y_hat[batch]-target[batch])**2).mean() - ((y_hat[batch]-y_bar[batch])**2).mean()
         loss_ += tmp
     return loss_/len(target)
+
+import torch.nn as nn
+def kl_loss(inputs, labels):
+    criterion = nn.KLDivLoss(reduction='none')
+    outputs = torch.log(inputs)
+    loss = criterion(outputs, labels.float())
+    loss = loss.sum()/loss.shape[0]
+    return loss
+
+def L1_loss(inputs, labels):
+    criterion = nn.L1Loss(reduction='mean')
+    loss = criterion(inputs, labels.float())
+    return loss 
+
+import math
+def normal_sampling(mean, label_k, std=2):
+    return math.exp(-(label_k-mean)**2/(2*std**2))/(math.sqrt(2*math.pi)*std)
 
 from torchvision import transforms
 flip = transforms.RandomHorizontalFlip(p=1.)
