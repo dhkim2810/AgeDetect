@@ -1,13 +1,13 @@
+import math
 import torch
+import torch.nn as nn
 import argparse
 
 def create_params():
-    parser = argparse.ArgumentParser(description='Pytorch CIFAR10 Training')
+    parser = argparse.ArgumentParser(description='Training AgeDetect Model')
     # Environmnet
     parser.add_argument('--name', default='AgeDetect', type=str,
                         help='Name of the project')
-    parser.add_argument('--output_dir', default='/root/volume/AgeDetect/Result', type=str,
-                        help='Output directory')
     parser.add_argument('--use_gpu', action='store_true',
                         help='toggle gpu')
     parser.add_argument('--cudnn', action='store_true',
@@ -21,36 +21,37 @@ def create_params():
                         help='number of data loading workers (default: 4)')
     parser.add_argument('--train_val_ratio', default=0.9, type=float,
                         help='train data split ratio for validation')
-    parser.add_argument('--save_dir', default='/root/volume/AgeDetect/Eval', type=str,
-                        help='Saving directory')
+    parser.add_argument('--save_dir', default='result', type=str,
+                        help='final model directory')
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--resume_dir',  default='', type=str,
                         help='path to latest checkpoint (default: none)')
     parser.add_argument('--print_freq', default=30, type=int,
                         help='print frequency (default: 30)')
     parser.add_argument('--trial', default=1,type=int)
+
     # Model
-    parser.add_argument('--arch', default='resent18',type=str,
+    parser.add_argument('--arch', default='dldlv2',type=str,
                         choices=['resnet18','spinalresnet18','densenet','random_bin','dldlv2'])
-    parser.add_argument('--random_bin', action='store_true')
+    
+    ## Random Bin Configuration
     parser.add_argument('--M', default=30,type=int)
     parser.add_argument('--N', default=10,type=int)
+
     # Data Augmentation
-    parser.add_argument('--data_dir',default='/root/volume/AgeDetect/dataset', type=str)
+    parser.add_argument('--data_dir',default='dataset', type=str)
     parser.add_argument('--img_size',default=100,type=int)
     parser.add_argument('--da', action='store_true',
                         help='Traditional data augmentation such as flipping')
+    parser.add_argument('--normalize', action='store_true')
+
     parser.add_argument('--thumbnail',action='store_true')
     parser.add_argument('--thumbnail_size', default=48, type=int)
     parser.add_argument('--thumbnail_prob',default=0.8,type=float)
-    parser.add_argument('--normalize', action='store_true')
+
     # Training/Evaluation
-    parser.add_argument('--eval', action='store_true')
     parser.add_argument('--epochs', default=150, type=int,
                         help='number of total epochs to run')
-
-    parser.add_argument('--use_l1_loss',action='store_true')
-
     parser.add_argument('--optim', default='sgd',type=str,
                         choices=['sgd','adam'])
     parser.add_argument('--learning_rate',default=2e-4,type=float)
@@ -68,6 +69,7 @@ def create_params():
     parser.add_argument('--gamma',default=0.2,type=float)
     parser.add_argument('--cycle',default=0.95,type=float)
     
+    parser.add_argument('--eval', action='store_true')
     return parser.parse_args()
 
 
@@ -136,14 +138,7 @@ def accuracy(output, target, topk=(1,)):
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
-def cal_loss(target, y_hat, y_bar):
-    loss_ = 0.
-    for batch in range(len(target)):
-        tmp = ((y_hat[batch]-target[batch])**2).mean() - ((y_hat[batch]-y_bar[batch])**2).mean()
-        loss_ += tmp
-    return loss_/len(target)
 
-import torch.nn as nn
 def kl_loss(inputs, labels):
     criterion = nn.KLDivLoss(reduction='none')
     outputs = torch.log(inputs)
@@ -156,9 +151,14 @@ def L1_loss(inputs, labels):
     loss = criterion(inputs, labels.float())
     return loss 
 
-import math
+def l2_loss(target, y_hat, y_bar):
+    loss_ = 0.
+    for batch in range(len(target)):
+        tmp = ((y_hat[batch]-target[batch])**2).mean() - ((y_hat[batch]-y_bar[batch])**2).mean()
+        loss_ += tmp
+    return loss_/len(target)
+
 def normal_sampling(mean, label_k, std=2):
     return math.exp(-(label_k-mean)**2/(2*std**2))/(math.sqrt(2*math.pi)*std)
 
-from torchvision import transforms
-flip = transforms.RandomHorizontalFlip(p=1.)
+flip = torchvision.transforms.RandomHorizontalFlip(p=1.)

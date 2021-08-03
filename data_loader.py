@@ -59,20 +59,20 @@ class FacialDataset(Dataset):
             self.labels.append(label)
             self.imgs.append(img)
     def __getitem__(self, idx):
+        # Transform image here to boost training speed
         image = self.transform(Image.open(self.imgs[idx]))
+        label = None
         age = self.labels[idx]
         if self.model == 'random_bin':
             _, index = torch.min(abs(age-self.centroid),dim=1)
             label = torch.zeros(self.M*self.N, dtype=torch.long)
             for i,item in enumerate(index):
                 label[self.N*i+item] = 1
-            return image, label, age
         elif self.model == 'dldlv2':
             label = [normal_sampling(int(age), i) for i in range(120)]
             label = [i if i > 1e-15 else 1e-15 for i in label]
             label = torch.Tensor(label)
-            return image, label, age
-        return image, age
+        return image, label, age
 
     def __len__(self):
         return len(self.age_path)

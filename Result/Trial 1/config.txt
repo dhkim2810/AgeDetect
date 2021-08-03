@@ -1,5 +1,0 @@
-ResNet8
-MSE
-SGD
-data_augmentation
-cutout

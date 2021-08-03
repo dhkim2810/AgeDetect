@@ -36,13 +36,17 @@ def main():
         transforms.ToTensor()
     ])
 
-    device = torch.device("cuda")
+    print("Calcuating dataset MEAN / STD")
+    print("\tResize to 200px..(default)")
+
     dataset = FacialDataset('./dataset/train', val_transform)
+    print("\tLoaded dataset..")
     loader = torch.utils.data.DataLoader(dataset=dataset,batch_size=1,shuffle=True,num_workers=4, pin_memory=False)
     
     mean = torch.zeros(3)
     std = torch.zeros(3)
 
+    print("\tCalculating mean..")
     for i, (data,_) in enumerate(tqdm(loader)):
         data = data[0].squeeze(0)
         if (i == 0): size = data.size(1) * data.size(2)
@@ -52,6 +56,7 @@ def main():
     print(mean)
     mean = mean.unsqueeze(1).unsqueeze(2)
 
+    print("\tCalculating std..")
     for i, (data,_) in enumerate(tqdm(loader)):
         data = data[0].squeeze(0)
         std += ((data - mean) ** 2).sum((1, 2)) / size
@@ -60,4 +65,5 @@ def main():
     std = std.sqrt()
     print(std)
 
-main()
+if __name__ == '__main__':
+    main()

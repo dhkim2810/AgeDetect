@@ -9,7 +9,7 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader
 
-from util import create_params
+from util import create_params, flip
 from model import create_model
 
 from collections import OrderedDict
@@ -50,14 +50,20 @@ def eval():
     
     # load checkpoint
     checkpoint = None
+    centroid = None
     if config.eval:
         checkpoint = torch.load(os.path.join(config.output_dir, config.arch, 'best','model_{}.pt'.format(config.trial)))
+        if 'centroid' in checkpoint.keys():
+            centroid = checkpoint['centroid']
         model = create_model(config)
-        new_state_dict = OrderedDict()
-        for k, v in checkpoint['state_dict'].items():
-            name = k[7:] # remove `module.`
-            new_state_dict[name] = v
-        model.load_state_dict(new_state_dict)
+        if torch.cuda.device_count() > 1:
+            new_state_dict = OrderedDict()
+            for k, v in checkpoint['state_dict'].items():
+                name = k[7:] # remove `module.`
+                new_state_dict[name] = v
+            model.load_state_dict(new_state_dict)
+        else:
+            model.load_state_dict(checkpoint['state_dict'])
     model.eval()
 
     if config.use_gpu and torch.cuda.is_available():
@@ -67,8 +73,18 @@ def eval():
     Category = []
     for input in tqdm(test_loader):
         input = input.cuda()
-        output = [model(input).item()]
-        # output = torch.argmax(output, dim=1)
+        output = model(input)
+        if config.arch == 'random_bin':
+            est = (output * centroid.view(1,-1)).view(-1, config.M, config.N)
+            y_hat = est.sum(dim=2)
+            y_bar = y_hat.mean(dim=1)
+            output = [y_bar.item()]
+        elif config.arch == 'dldlv2':
+            flipped = flip(input).cuda()
+            output_flipped = model(flipped)
+            output = [torch.sum(output*centroid, dim=1).item()/2 + torch.sum(output_flipped*centroid, dim=1).item()/2]
+        else:
+            output = [output.item()]
         Category = Category + output
 
     Id = list(range(0, len(Category)))
@@ -83,14 +99,20 @@ def eval():
 
     del model
     checkpoint = None
+    centroid = None
     if config.eval:
         checkpoint = torch.load(os.path.join(config.output_dir, config.arch, 'latest','model_{}.pt'.format(config.trial)))
+        if 'centroid' in checkpoint.keys():
+            centroid = checkpoint['centroid']
         model = create_model(config)
-        new_state_dict = OrderedDict()
-        for k, v in checkpoint['state_dict'].items():
-            name = k[7:] # remove `module.`
-            new_state_dict[name] = v
-        model.load_state_dict(new_state_dict)
+        if torch.cuda.device_count() > 1:
+            new_state_dict = OrderedDict()
+            for k, v in checkpoint['state_dict'].items():
+                name = k[7:] # remove `module.`
+                new_state_dict[name] = v
+            model.load_state_dict(new_state_dict)
+        else:
+            model.load_state_dict(checkpoint['state_dict'])
     model.eval()
 
     if config.use_gpu and torch.cuda.is_available():
@@ -100,8 +122,18 @@ def eval():
     Category = []
     for input in tqdm(test_loader):
         input = input.cuda()
-        output = [model(input).item()]
-        # output = torch.argmax(output, dim=1)
+        output = model(input)
+        if config.arch == 'random_bin':
+            est = (output * centroid.view(1,-1)).view(-1, config.M, config.N)
+            y_hat = est.sum(dim=2)
+            y_bar = y_hat.mean(dim=1)
+            output = [y_bar.item()]
+        elif config.arch == 'dldlv2':
+            flipped = flip(input).cuda()
+            output_flipped = model(flipped)
+            output = [torch.sum(output*centroid, dim=1).item()/2 + torch.sum(output_flipped*centroid, dim=1).item()/2]
+        else:
+            output = [output.item()]
         Category = Category + output
 
     Id = list(range(0, len(Category)))
