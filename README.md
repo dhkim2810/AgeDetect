@@ -28,8 +28,9 @@
 
 Project for **FINAL EXAM** for "Machine Learning in Practice(CSE340-00)" Kyunghee University.
 Main purpose is to detect age of given person at range between 2 and 120, only using models with size less than 2M parameters.
+
+
 This repo includes 5 different models : Modified ResNet18, Modified SpinalNet, Modified DenseNet, DLDLv2, RandomBin
-You may choose any of these models.
 
 ### Built With
 
